@@ -272,15 +272,6 @@ class MotionPlanning(Drone):
         ax.plot(path_points[:, 0], path_points[:, 1], 'green', linewidth=3)
         fig.canvas.draw()  # Ensure the canvas is updated
 
-    # def merge_polygons(self, polygons):
-    #     # Calculate the maximum height
-    #     max_height = max(height for _, height in polygons)
-    #
-    #     # Merge polygons using unary_union
-    #     merged_polygon = unary_union([poly for poly, _ in polygons])
-    #
-    #     return merged_polygon, max_height
-
     def check_waypoints_validity(self, waypoints, data, polygons):
         xmin, xmax, ymin, ymax, zmin, zmax = self.get_bounds(data)
 
@@ -424,17 +415,6 @@ if __name__ == "__main__":
 
     polygons = extract_polygons(data)
     print("Polygons extracted.")
-
-
-    # def merge_polygons(polygons):
-    #     merged_polygons = []
-    #     union = unary_union([poly for poly, _ in polygons])
-    #     for geom in union.geoms:
-    #         merged_polygons.append((geom, max([height for poly, height in polygons if poly.intersects(geom)])))
-    #     return merged_polygons
-
-    # polygons = merge_polygons(polygons)
-    # print("Polygons merged.")
 
     def merge_polygons(polygons):
         # Calculate the maximum height
