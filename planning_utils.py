@@ -1,47 +1,10 @@
 from enum import Enum
-from queue import PriorityQueue
-import numpy as np
 from math import sqrt
-from bresenham import bresenham
+
 import networkx as nx
-
-
-def create_grid(data, drone_altitude, safety_distance):
-    """
-    Returns a grid representation of a 2D configuration space
-    based on given obstacle data, drone altitude and safety distance
-    arguments.
-    """
-
-    # minimum and maximum north coordinates
-    north_min = np.floor(np.min(data[:, 0] - data[:, 3]))
-    north_max = np.ceil(np.max(data[:, 0] + data[:, 3]))
-
-    # minimum and maximum east coordinates
-    east_min = np.floor(np.min(data[:, 1] - data[:, 4]))
-    east_max = np.ceil(np.max(data[:, 1] + data[:, 4]))
-
-    # given the minimum and maximum coordinates we can
-    # calculate the size of the grid.
-    north_size = int(np.ceil(north_max - north_min))
-    east_size = int(np.ceil(east_max - east_min))
-
-    # Initialize an empty grid
-    grid = np.zeros((north_size, east_size))
-
-    # Populate the grid with obstacles
-    for i in range(data.shape[0]):
-        north, east, alt, d_north, d_east, d_alt = data[i, :]
-        if alt + d_alt + safety_distance > drone_altitude:
-            obstacle = [
-                int(np.clip(north - d_north - safety_distance - north_min, 0, north_size - 1)),
-                int(np.clip(north + d_north + safety_distance - north_min, 0, north_size - 1)),
-                int(np.clip(east - d_east - safety_distance - east_min, 0, east_size - 1)),
-                int(np.clip(east + d_east + safety_distance - east_min, 0, east_size - 1)),
-            ]
-            grid[obstacle[0]:obstacle[1] + 1, obstacle[2]:obstacle[3] + 1] = 1
-
-    return grid, int(north_min), int(east_min)
+import numpy as np
+from bresenham import bresenham
+from shapely.geometry import Point
 
 
 # Assume all actions cost the same.
@@ -69,9 +32,10 @@ class Action(Enum):
 
     @property
     def delta(self):
-        return (self.value[0], self.value[1])
+        return self.value[0], self.value[1]
 
 
+# TODO: do we need this???
 def valid_actions(grid, current_node):
     """
     Returns a list of valid actions given a grid and current node.
@@ -103,61 +67,6 @@ def valid_actions(grid, current_node):
         valid_actions.remove(Action.DIAGONAL_DOWN_LEFT)
 
     return valid_actions
-
-
-def a_star(grid, h, start, goal):
-    path = []
-    path_cost = 0
-    queue = PriorityQueue()
-    queue.put((0, start))
-    visited = set(start)
-
-    branch = {}
-    found = False
-
-    while not queue.empty():
-        item = queue.get()
-        current_node = item[1]
-        if current_node == start:
-            current_cost = 0.0
-        else:
-            current_cost = branch[current_node][0]
-
-        if current_node == goal:
-            print('Found a path.')
-            found = True
-            break
-        else:
-            for action in valid_actions(grid, current_node):
-                # get the tuple representation
-                da = action.delta
-                next_node = (current_node[0] + da[0], current_node[1] + da[1])
-                branch_cost = current_cost + action.cost
-                queue_cost = branch_cost + h(next_node, goal)
-
-                if next_node not in visited:
-                    visited.add(next_node)
-                    branch[next_node] = (branch_cost, current_node, action)
-                    queue.put((queue_cost, next_node))
-
-    if found:
-        # retrace steps
-        n = goal
-        path_cost = branch[n][0]
-        path.append(goal)
-        while branch[n][1] != start:
-            path.append(branch[n][1])
-            n = branch[n][1]
-        path.append(branch[n][1])
-    else:
-        print('**********************')
-        print('Failed to find a path!')
-        print('**********************')
-    return path[::-1], path_cost
-
-
-def heuristic(position, goal_position):
-    return np.linalg.norm(np.array(position) - np.array(goal_position))
 
 
 def prune_path_bresenham(path):
@@ -228,6 +137,10 @@ def combined_pruning(path):
     return pruned_path_combined
 
 
+def heuristic(position, goal_position):
+    return np.linalg.norm(np.array(position) - np.array(goal_position))
+
+
 def a_star_graph(graph, start, goal):
     path = nx.astar_path(graph, start, goal, heuristic=heuristic)
     return path
@@ -245,3 +158,26 @@ def closest_point(graph, point):
             closest_point = p
             min_dist = dist
     return closest_point
+
+
+def collides(index_lock, polygons_index, point, polygons):
+    point_obj = Point(point[0], point[1])
+    with index_lock:  # Ensure thread-safe access to the R-tree index
+        for idx in polygons_index.intersection((point[0], point[1], point[0], point[1])):
+            poly, height = polygons[idx]
+            if poly.contains(point_obj) and height > point[2]:
+                return True
+    return False
+
+
+def get_bounds(data):
+    """
+    Find bounds for the operational area based on obstacle data.
+    """
+    xmin = np.min(data[:, 0] - data[:, 3])
+    xmax = np.max(data[:, 0] + data[:, 3])
+    ymin = np.min(data[:, 1] - data[:, 4])
+    ymax = np.max(data[:, 1] + data[:, 4])
+    zmin = 0
+    zmax = 100  # Example z bounds
+    return xmin, xmax, ymin, ymax, zmin, zmax
