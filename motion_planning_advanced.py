@@ -234,27 +234,6 @@ class MotionPlanning(Drone):
         ax.plot(path_points[:, 0], path_points[:, 1], 'green', linewidth=3)
         fig.canvas.draw()  # Ensure the canvas is updated
 
-    def check_waypoints_validity(self, waypoints, data, polygons):
-        xmin, xmax, ymin, ymax, zmin, zmax = get_bounds(data)
-
-        for wp in waypoints:
-            x, y, z, _ = wp
-            print(f"Checking waypoint: {wp}")
-
-            # Check within boundaries
-            if not (xmin <= x <= xmax and ymin <= y <= ymax and zmin <= z <= zmax):
-                print(f"Waypoint {wp} is out of bounds.")
-                return False
-
-            # Check for obstacles
-            point = (x, y, z)
-            for poly, height in polygons:
-                if poly.contains(Point(x, y)) and height > z:
-                    print(f"Waypoint {wp} collides with an obstacle.")
-                    return False
-
-        return True
-
     def plan_path(self):
         self.flight_state = States.PLANNING
         print("Planning a path... ")
@@ -273,7 +252,6 @@ class MotionPlanning(Drone):
         # Get floating point values
         lat0 = np.float64(lat0.split()[1])
         lon0 = np.float64(lon0.split()[1])
-        print(lat0, lon0)
 
         # set home position to (lon0, lat0, 0)
         self.set_home_position(lon0, lat0, 0)
@@ -298,8 +276,8 @@ class MotionPlanning(Drone):
         goal_point = closest_point(self.node_graph, local_goal)
         print(f'Start Point: {start_point}, Goal Point: {goal_point}')
 
-        # plot graph with start, goal and traversable edges.
-        # fig, ax = self.plot_graph_optimised(G, start_point, goal_point, self.polygons)
+        # # plot graph with start, goal and traversable edges (THIS WILL CAUSE CONNECTION TO TIMEOUT)
+        # fig, ax = self.plot_graph_optimised(self.node_graph, start_point, goal_point, self.polygons)
         # print("Graph plotted")
 
         path_found = False
@@ -312,17 +290,16 @@ class MotionPlanning(Drone):
                 print("Path found: {0}".format(path))
                 break
 
-        # path = combined_pruning(path)
-        # print("Path pruned: ", path)
+        pruned_path = combined_pruning(path)
 
-        # Add path to plot
+        # # Add path to plot
         # self.add_path_to_plot(fig, ax, path)
         # print("Path added to plotted Graph")
         # plt.show()
 
-        waypoints = [[int(local_start[0]), int(local_start[1]), int(TARGET_ALTITUDE), 0]]
+        # waypoints = [[int(local_start[0]), int(local_start[1]), int(TARGET_ALTITUDE), 0]]
 
-        waypoints.extend([[int(p[0]), int(p[1]), int(TARGET_ALTITUDE), 0] for p in path])
+        waypoints = [[int(p[0]), int(p[1]), int(TARGET_ALTITUDE), 0] for p in pruned_path]
         print("Waypoints:", waypoints)
         self.waypoints = waypoints
 
@@ -342,7 +319,6 @@ class MotionPlanning(Drone):
 
 
 if __name__ == "__main__":
-
     print("Starting Preprocessing Tasks")
     start_time = time.time()
 
@@ -354,10 +330,10 @@ if __name__ == "__main__":
     polygons, rtree = create_polygon(map_data)
 
     # Set number of node points to create and consider for path planning.
-    num_nodes = 500
+    num_nodes = 1000
 
     # Define maximum radius for neighbor search
-    radius = 300
+    radius = 200
 
     # Crate world graph and nodes to consider for path planning
     graph = create_nodes_and_graph(map_data, num_nodes, rtree, polygons, radius)
@@ -376,6 +352,5 @@ if __name__ == "__main__":
                            precomputed_rtree_index=rtree,
                            colliders_data=map_data,
                            node_graph=graph)
-
 
     drone.start()

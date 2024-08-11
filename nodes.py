@@ -44,22 +44,7 @@ def create_kdTree(nodes):
 
 
 def create_graph_parallel(to_keep, radius, rtree, polygons):
-    """
-    Creates a graph by connecting points that can be linked without intersecting obstacles.
-
-    This function constructs a graph where each point in `to_keep` is a node, and an edge is added
-    between two nodes if they can be connected directly without crossing any obstacles. The connections
-    are determined in parallel for efficiency.
-
-    Args:
-        to_keep (list of tuple): Points that are free from obstacles.
-        radius (float): The search radius for connecting neighboring points.
-        rtree (scipy.spatial.KDTree): A KDTree for efficient neighbor search.
-        polygons (list of tuple): Obstacle polygons used to check for valid connections.
-
-    Returns:
-        networkx.Graph: A graph with points as nodes and valid connections as edges.
-    """
+    """ Creates a graph by connecting points that can be linked without intersecting obstacles. """
     start_time = time.time()
 
     def can_connect_two_points(p1, p2, polygons):
