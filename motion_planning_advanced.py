@@ -32,13 +32,21 @@ class States(Enum):
 
 class MotionPlanning(Drone):
 
-    def __init__(self, connection,
+    def __init__(self,
+                 connection,
                  precomputed_polygons=None,
                  precomputed_rtree_index=None,
                  colliders_data=None,
-                 node_graph=None):
+                 node_graph=None,
+                 num_nodes=None,
+                 radius=None,
+                 conn_port=None,
+                 conn_host=None,
+                 persistent_local_goal=None):
+
         super().__init__(connection)
 
+        self.num_nodes = num_nodes
         self.target_position = np.array([0.0, 0.0, 0.0])
         self.waypoints = []
         self.in_mission = True
@@ -47,6 +55,11 @@ class MotionPlanning(Drone):
         self.rtree_index = precomputed_rtree_index
         self.data = colliders_data
         self.node_graph = node_graph
+        self.radius = radius
+        self.port = conn_port
+        self.host = conn_host
+        self.local_goal = persistent_local_goal
+        self.waypoints_executed = False
 
         # initial stateF
         self.flight_state = States.MANUAL
@@ -253,13 +266,13 @@ class MotionPlanning(Drone):
         lat0 = np.float64(lat0.split()[1])
         lon0 = np.float64(lon0.split()[1])
 
-        # set home position to (lon0, lat0, 0)
+        # Set home position to (lon0, lat0, 0)
         self.set_home_position(lon0, lat0, 0)
 
-        # retrieve current global position
+        # Retrieve current global position
         print(f"Global Position: {self.global_position}")
 
-        # convert to current local position using global_to_local()
+        # Convert to current local position using global_to_local()
         local_start = global_to_local(self.global_position, self.global_home)
         print(f'global home {self.global_home}, position {self.global_position}, local position {self.local_position}')
 
@@ -267,13 +280,17 @@ class MotionPlanning(Drone):
         # Get boundaries of the mapped area (defined by the obstacle data)
         xmin, xmax, ymin, ymax, zmin, zmax = get_bounds(map_data)
 
-        index_lock2 = threading.Lock()
-        # adapt to set goal as latitude / longitude position and convert
-        local_goal = self.choose_random_goal(index_lock2, local_start, polygons, xmin, xmax,
-                                             ymin, ymax, TARGET_ALTITUDE, min_distance=100)
+        # Set local goal as latitude / longitude position and convert
+        if self.local_goal is None:
+            index_lock2 = threading.Lock()
+
+            self.local_goal = self.choose_random_goal(index_lock2, local_start, polygons, xmin, xmax,
+                                                 ymin, ymax, TARGET_ALTITUDE, min_distance=100)
+
+        print(f"Local Goal: {self.local_goal}")
 
         start_point = closest_point(self.node_graph, local_start)
-        goal_point = closest_point(self.node_graph, local_goal)
+        goal_point = closest_point(self.node_graph, self.local_goal)
         print(f'Start Point: {start_point}, Goal Point: {goal_point}')
 
         # # plot graph with start, goal and traversable edges (THIS WILL CAUSE CONNECTION TO TIMEOUT)
@@ -283,12 +300,14 @@ class MotionPlanning(Drone):
         path_found = False
         while not path_found:
             print("Searching for a path ...")
-            path = a_star_graph(self.node_graph, start_point, goal_point)
-            if not path:
-                print("No path found")
-            else:
-                print("Path found: {0}".format(path))
-                break
+            try:
+                path = a_star_graph(self.node_graph, start_point, goal_point)
+                print("Path found")
+                path_found = True
+            except nx.NetworkXNoPath as e:
+                print(f"No path found: {e}")
+                self.stop()
+                return
 
         pruned_path = combined_pruning(path)
 
@@ -302,7 +321,7 @@ class MotionPlanning(Drone):
         waypoints = [[int(p[0]), int(p[1]), int(TARGET_ALTITUDE), 0] for p in pruned_path]
         print("Waypoints:", waypoints)
         self.waypoints = waypoints
-
+        self.waypoints_executed = True
         self.send_waypoints()
 
     def start(self):
@@ -316,41 +335,52 @@ class MotionPlanning(Drone):
         #     pass
 
         self.stop_log()
+        return self.local_goal, self.waypoints_executed
 
 
 if __name__ == "__main__":
     print("Starting Preprocessing Tasks")
-    start_time = time.time()
+
+    # Set number of node points to create and consider for path planning.
+    num_nodes = 500
+
+    # Define maximum radius for neighbor search
+    radius = 300
 
     # Load colliders data
     filename = 'colliders.csv'
     map_data = np.loadtxt(filename, delimiter=',', dtype='Float64', skiprows=2)
 
-    # Create polygons and rtree
-    polygons, rtree = create_polygon(map_data)
+    # Set initial local_goal point as None for first loop, successive loops will use local_goal
+    persistent_local_goal = None
 
-    # Set number of node points to create and consider for path planning.
-    num_nodes = 1000
+    # Loop until waypoint is executed (Polygon, Node and Graph creation have to occur outside
+    # of API connection to avoid timeout)
+    while True:
+        # Create polygons and rtree
+        polygons, rtree = create_polygon(map_data)
 
-    # Define maximum radius for neighbor search
-    radius = 200
+        # Crate world graph and nodes to consider for path planning
+        graph = create_nodes_and_graph(map_data, num_nodes, rtree, polygons, radius)
 
-    # Crate world graph and nodes to consider for path planning
-    graph = create_nodes_and_graph(map_data, num_nodes, rtree, polygons, radius)
+        # Create Connection
+        port = 5760
+        host = "127.0.0.1"
+        conn = MavlinkConnection(f"tcp:{host}:{port}", timeout=1200)
 
-    end_time = time.time()
-    print(f"Preprocessing Tasks Complete, executed in {end_time - start_time:.2f} seconds")
+        drone = MotionPlanning(conn,
+                               precomputed_polygons=polygons,
+                               precomputed_rtree_index=rtree,
+                               colliders_data=map_data,
+                               node_graph=graph,
+                               num_nodes=num_nodes,
+                               radius=radius,
+                               conn_host=host,
+                               conn_port=port,
+                               persistent_local_goal=persistent_local_goal)
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--port', type=int, default=5760, help='Port number')
-    parser.add_argument('--host', type=str, default='127.0.0.1', help="host address, i.e. '127.0.0.1'")
-    args = parser.parse_args()
+        persistent_local_goal, path_executed = drone.start()
 
-    conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=1200)
-    drone = MotionPlanning(conn,
-                           precomputed_polygons=polygons,
-                           precomputed_rtree_index=rtree,
-                           colliders_data=map_data,
-                           node_graph=graph)
+        if path_executed:
+            break
 
-    drone.start()

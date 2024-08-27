@@ -86,6 +86,7 @@ def create_graph_parallel(to_keep, radius, rtree, polygons):
 
 
 def create_nodes_and_graph(map_data, num_nodes, rtree, polygons, radius):
+    print("Creating nodes and graph")
     nodes = create_nodes(map_data, num_nodes, rtree, polygons)
     node_kdTree = create_kdTree(nodes)
     graph = create_graph_parallel(nodes, radius, node_kdTree, polygons)
