@@ -2,7 +2,7 @@ import argparse
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from enum import auto
+from enum import auto, Enum
 
 import msgpack
 import shapely
@@ -74,17 +74,21 @@ class MotionPlanning(Drone):
             if -1.0 * self.local_position[2] > 0.95 * self.target_position[2]:
                 self.waypoint_transition()
         elif self.flight_state == States.WAYPOINT:
-            if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < 1.0:
+            distance_to_target = np.linalg.norm(self.target_position[0:2] - self.local_position[0:2])
+            velocity_magnitude = np.linalg.norm(self.local_velocity[0:2])
+            # Set deadband range
+            if distance_to_target < 8:
+                # As soon as the drone is within the deadband range, proceed to the next waypoint
                 if len(self.waypoints) > 0:
                     self.waypoint_transition()
                 else:
-                    if np.linalg.norm(self.local_velocity[0:2]) < 1.0:
+                    if velocity_magnitude < 1.0:
                         self.landing_transition()
 
     def velocity_callback(self):
         if self.flight_state == States.LANDING:
             if self.global_position[2] - self.global_home[2] < 0.1:
-                if abs(self.local_position[2]) < 0.01:
+                if abs(self.local_position[2]) < 0.1:
                     self.disarming_transition()
 
     def state_callback(self):
@@ -139,7 +143,7 @@ class MotionPlanning(Drone):
     def send_waypoints(self):
         print("Sending waypoints to simulator ...")
         data = msgpack.dumps(self.waypoints)
-        print(f"Waypoints data: {data}")
+        # print(f"Waypoints data: {data}")
         self.connection._master.write(data)
 
     def choose_random_goal(self, index_lock, local_start, polygons, xmin, xmax, ymin, ymax,
@@ -285,7 +289,7 @@ class MotionPlanning(Drone):
             index_lock2 = threading.Lock()
 
             self.local_goal = self.choose_random_goal(index_lock2, local_start, polygons, xmin, xmax,
-                                                 ymin, ymax, TARGET_ALTITUDE, min_distance=100)
+                                                      ymin, ymax, TARGET_ALTITUDE, min_distance=600)
 
         print(f"Local Goal: {self.local_goal}")
 
@@ -309,23 +313,32 @@ class MotionPlanning(Drone):
                 self.stop()
                 return
 
-        pruned_path = combined_pruning(path)
-
         # # Add path to plot
         # self.add_path_to_plot(fig, ax, path)
         # print("Path added to plotted Graph")
         # plt.show()
 
-        # waypoints = [[int(local_start[0]), int(local_start[1]), int(TARGET_ALTITUDE), 0]]
+        pruned_path = combined_pruning(path)
 
-        waypoints = [[int(p[0]), int(p[1]), int(TARGET_ALTITUDE), 0] for p in pruned_path]
+        # Initialize the waypoints list with the first waypoint (heading = 0)
+        waypoints = [[int(pruned_path[0][0]), int(pruned_path[0][1]), int(TARGET_ALTITUDE), 0]]
+
+        # Loop through the pruned_path and calculate the heading for each waypoint
+        for i in range(1, len(pruned_path)):
+            wp1 = pruned_path[i - 1]
+            wp2 = pruned_path[i]
+            heading = calculate_heading(wp1, wp2)
+
+            # Update the waypoint with the calculated heading
+            waypoints.append([int(wp2[0]), int(wp2[1]), int(TARGET_ALTITUDE), heading])
+
         print("Waypoints:", waypoints)
         self.waypoints = waypoints
         self.waypoints_executed = True
         self.send_waypoints()
 
     def start(self):
-        self.start_log("Logs", "NavLog.txt")
+        # self.start_log("Logs", "NavLog.txt")
 
         print("starting connection")
         self.connection.start()
@@ -334,15 +347,14 @@ class MotionPlanning(Drone):
         # while self.in_mission:
         #     pass
 
-        self.stop_log()
+        # self.stop_log()
         return self.local_goal, self.waypoints_executed
 
 
 if __name__ == "__main__":
-    print("Starting Preprocessing Tasks")
-
-    # Set number of node points to create and consider for path planning.
-    num_nodes = 500
+    # Set number of node points to create and consider for path planning (lower if execution time is too long)
+    # reference execution time for create_nodes_and_graph on AMD 3950X is 14s for 1000 nodes and 53s for 2000.
+    num_nodes = 1000
 
     # Define maximum radius for neighbor search
     radius = 300
@@ -354,12 +366,12 @@ if __name__ == "__main__":
     # Set initial local_goal point as None for first loop, successive loops will use local_goal
     persistent_local_goal = None
 
+    # Create polygons and rtree
+    polygons, rtree = create_polygon(map_data)
+
     # Loop until waypoint is executed (Polygon, Node and Graph creation have to occur outside
     # of API connection to avoid timeout)
     while True:
-        # Create polygons and rtree
-        polygons, rtree = create_polygon(map_data)
-
         # Crate world graph and nodes to consider for path planning
         graph = create_nodes_and_graph(map_data, num_nodes, rtree, polygons, radius)
 
@@ -383,4 +395,3 @@ if __name__ == "__main__":
 
         if path_executed:
             break
-

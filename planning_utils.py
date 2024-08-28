@@ -1,38 +1,7 @@
-from enum import Enum
-from math import sqrt
-
 import networkx as nx
 import numpy as np
 from bresenham import bresenham
 from shapely.geometry import Point
-
-
-# Assume all actions cost the same.
-class Action(Enum):
-    """
-    An action is represented by a 3 element tuple.
-
-    The first 2 values are the delta of the action relative
-    to the current grid position. The third and final value
-    is the cost of performing the action.
-    """
-
-    WEST = (0, -1, 1)
-    EAST = (0, 1, 1)
-    NORTH = (-1, 0, 1)
-    SOUTH = (1, 0, 1)
-    DIAGONAL_UP_RIGHT = (-1, 1, sqrt(2))
-    DIAGONAL_UP_LEFT = (-1, -1, sqrt(2))
-    DIAGONAL_DOWN_RIGHT = (1, 1, sqrt(2))
-    DIAGONAL_DOWN_LEFT = (1, -1, sqrt(2))
-
-    @property
-    def cost(self):
-        return self.value[2]
-
-    @property
-    def delta(self):
-        return self.value[0], self.value[1]
 
 
 def prune_path_bresenham(path):
@@ -136,3 +105,9 @@ def get_bounds(data):
     zmin = 0
     zmax = 100  # Example z bounds
     return xmin, xmax, ymin, ymax, zmin, zmax
+
+
+def calculate_heading(wp1, wp2):
+    # Calculate the heading angle between two waypoints
+    heading = np.arctan2((wp2[1] - wp1[1]), (wp2[0] - wp1[0]))
+    return heading

@@ -41,44 +41,44 @@ Currently when motion_planning.py is run the drone follows a zig zag route.
 ![img.png](img.png)
 
 
-### Implementing Your Path Planning Algorithm
+### Write up of Path Planning Algorithm
 
 #### 1. Set your global home position
-Here students should read the first line of the csv file, extract lat0 and lon0 as floating point values and use the self.set_home_position() method to set global home. Explain briefly how you accomplished this in your code.
-
-
-And here is a lovely picture of our downtown San Francisco environment from above!
-![Map of SF](./misc/map.png)
+- I modified the plan_path function to read the first line of the colliders.csv file, extracting lat0 and lon0 as floating-point values.
+- These values were then used with the self.set_home_position() method to set the global home position.
 
 #### 2. Set your current local position
-Here as long as you successfully determine your local position relative to global home you'll be all set. Explain briefly how you accomplished this in your code.
-
-
-Meanwhile, here's a picture of me flying through the trees!
-![Forest Flying](./misc/in_the_trees.png)
+- I retrieved the drone's current position in geodetic coordinates (self._latitude, self._longitude, and self._altitude) and converted this to local coordinates using the global_to_local() utility function.
+- The code now sets the start point for the path planning algorithm using this dynamically determined local position, ensuring that planning always begins from the drone's actual location
 
 #### 3. Set grid start position from local position
-This is another step in adding flexibility to the start location. As long as it works you're good to go!
+- I replaced the hardcoded map center with the dynamically calculated local position obtained from the drone's geodetic coordinates.
 
 #### 4. Set grid goal position from geodetic coords
-This step is to add flexibility to the desired goal location. Should be able to choose any (lat, lon) within the map and have it rendered to a goal location on the grid.
+- I added functionality to allow the goal position to be set based on user-defined latitude and longitude values.
+- The choose_random_goal() function was introduced to generate a goal point within the boundaries of the map, ensuring it is at least a minimum distance from the start point.
+- The goal point is then converted to local coordinates and used in the planning algorithm, allowing for more flexible and dynamic goal setting.
 
 #### 5. Modify A* to include diagonal motion (or replace A* altogether)
-Minimal requirement here is to modify the code in planning_utils() to update the A* implementation to include diagonal motions on the grid that have a cost of sqrt(2), but more creative solutions are welcome. Explain the code you used to accomplish this step.
+- Original A* implementation has been replaced with networkx A* implementation as planning is now done with a graph rather than a grid.
 
 #### 6. Cull waypoints 
-For this step you can use a collinearity test or ray tracing method like Bresenham. The idea is simply to prune your path of unnecessary waypoints. Explain the code you used to accomplish this step.
+- Once a path is found the path is pruned by collinearity and then by the bresenham algorithm.
+Helper functions, prune_path_collinearity and prune_path_bresenham both used by combined_pruning, to facilitate this are provided in planning_utils.py.
+- The pruned path, represented as way points, are then passed to the drone.
 
+#### Additional Functionality
+- The code implements the probabilistic roadmap algorithm as below:
+  - 2.5d polygons, presently with a fixed height though I plan on improving this in the future, are created from the colliders data.
+These are stored in a region tree spatial data structure to allow for more efficient querying. Polygon and rtree creation are facilitated by functions in polygon.py.
+  - A number of Graph nodes are then randomly spread in free space around the polygon obstacles. Node creation is facilitated by functions in nodes.py. Nodes are checked to ensure they do not collide with obstacles using the collides function in planning_utils.py. 
+  - We now create a 3D view of the world with polygons and nodes using the create_nodes_and_graph() function.
+  - The above 3 processes, creating the polygons, nodes and graph, all occur in main before the API connection or Drone class are created.
+this is due to the computation time being too excessive across the API and causing a timeout, hence this processing must occur locally with the results being passed to the MotionPlanning class for path finding.
+- If path planning fails, i.e. a path cannot be found between the node nearest the start point and the node nearest the goal point, then self.stop() is called on the drone
+which terminates the connection and triggers a new set of nodes and a new graph to be created. This new graph can then be checked for a valid path. The start point and local goal persist between graph creations.
+- Waypoints have headings added to them via the calculate_heading() function found in planning_utils.py
+- Deadbands of 8m are set for each waypoint enabling the Drone to fly more smooth patterns between waypoints, see local_position_callback()
 
-
-### Execute the flight
-#### 1. Does it work?
-It works!
-
-### Double check that you've met specifications for each of the [rubric](https://review.udacity.com/#!/rubrics/1534/view) points.
-  
-# Extra Challenges: Real World Planning
-
-For an extra challenge, consider implementing some of the techniques described in the "Real World Planning" lesson. You could try implementing a vehicle model to take dynamic constraints into account, or implement a replanning method to invoke if you get off course or encounter unexpected obstacles.
 
 

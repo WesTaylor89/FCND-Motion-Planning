@@ -1,10 +1,9 @@
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import networkx as nx
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor
-
 from scipy.spatial import KDTree
 from shapely.geometry import LineString, box
 
